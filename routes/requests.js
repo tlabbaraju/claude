@@ -15,10 +15,11 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 router.get('/:id', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
   try {
     const row = await queryOne(
       'SELECT project_id, project_name, request_date, requestor, description, it_comments FROM dbo.project_requests WHERE project_id = ?',
-      [parseInt(req.params.id, 10)]
+      [req.params.id]
     );
     if (!row) return res.status(404).json({ error: 'Not found' });
     res.json(row);
@@ -44,6 +45,7 @@ router.post('/', requireAuth, async (req, res) => {
 });
 
 router.put('/:id', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
   const { project_name, request_date, requestor, description, it_comments } = req.body;
   if (!project_name || !requestor || !description) {
     return res.status(400).json({ error: 'project_name, requestor, and description are required' });
@@ -51,7 +53,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   try {
     await query(
       'UPDATE dbo.project_requests SET project_name = ?, request_date = ?, requestor = ?, description = ?, it_comments = ? WHERE project_id = ?',
-      [project_name, request_date || new Date(), requestor, description, it_comments || null, parseInt(req.params.id, 10)]
+      [project_name, request_date || new Date(), requestor, description, it_comments || null, req.params.id]
     );
     res.json({ message: 'Request updated' });
   } catch (err) {
@@ -60,10 +62,11 @@ router.put('/:id', requireAuth, async (req, res) => {
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid id' });
   try {
     await query(
       'DELETE FROM dbo.project_requests WHERE project_id = ?',
-      [parseInt(req.params.id, 10)]
+      [req.params.id]
     );
     res.json({ message: 'Request deleted' });
   } catch (err) {
