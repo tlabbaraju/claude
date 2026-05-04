@@ -17,12 +17,17 @@ renderTable(requests);
 
 function renderTable(requests) {
   const tbody = document.getElementById('requests-tbody');
+  const countEl = document.getElementById('record-count');
+  if (countEl) countEl.textContent = `${requests.length} record${requests.length !== 1 ? 's' : ''}`;
 
   if (!requests.length) {
     tbody.innerHTML = `
       <tr>
         <td colspan="7">
-          <div class="empty-state">No project requests yet. <a href="/new-request.html">Create one.</a></div>
+          <div class="empty-state">
+            <p>No project requests yet.</p>
+            <a href="/new-request.html" class="btn">+ New Request</a>
+          </div>
         </td>
       </tr>`;
     return;
@@ -30,15 +35,15 @@ function renderTable(requests) {
 
   tbody.innerHTML = requests.map(r => `
     <tr>
-      <td>${r.project_id}</td>
-      <td>${esc(r.project_name)}</td>
-      <td>${fmtDate(r.request_date)}</td>
-      <td>${esc(r.requestor)}</td>
+      <td class="id-cell"><a href="/edit-request.html?id=${r.project_id}" class="id-link">${r.project_id}</a></td>
+      <td class="project-name-cell">${esc(r.project_name)}</td>
+      <td class="date-cell">${fmtDate(r.request_date)}</td>
+      <td class="requestor-cell">${esc(r.requestor)}</td>
       <td class="description-cell" title="${esc(r.description)}">${esc(r.description)}</td>
-      <td>${r.it_comments ? esc(r.it_comments) : '<span class="text-muted">—</span>'}</td>
-      <td style="white-space:nowrap">
+      <td>${r.it_comments ? `<span class="it-badge" title="${esc(r.it_comments)}">${esc(r.it_comments)}</span>` : '<span class="text-muted">—</span>'}</td>
+      <td class="actions-cell">
         <a href="/edit-request.html?id=${r.project_id}" class="btn btn-sm">Edit</a>
-        <button onclick="deleteRequest(${r.project_id})" class="btn btn-sm btn-danger" style="margin-left:4px">Delete</button>
+        <button onclick="deleteRequest(${r.project_id})" class="btn btn-sm btn-danger">Delete</button>
       </td>
     </tr>
   `).join('');
