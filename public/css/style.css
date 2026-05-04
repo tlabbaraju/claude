@@ -222,6 +222,17 @@ td.project-name-cell {
   color: var(--text);
 }
 
+td.project-name-cell a.project-name-link {
+  color: var(--text);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+td.project-name-cell a.project-name-link:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
 td.date-cell {
   color: var(--text-sm);
   white-space: nowrap;

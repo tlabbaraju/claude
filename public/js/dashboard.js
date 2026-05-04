@@ -36,7 +36,7 @@ function renderTable(requests) {
   tbody.innerHTML = requests.map(r => `
     <tr>
       <td class="id-cell"><a href="/edit-request.html?id=${r.project_id}" class="id-link">${r.project_id}</a></td>
-      <td class="project-name-cell">${esc(r.project_name)}</td>
+      <td class="project-name-cell"><a href="/edit-request.html?id=${r.project_id}" class="project-name-link">${esc(r.project_name)}</a></td>
       <td class="date-cell">${fmtDate(r.request_date)}</td>
       <td class="requestor-cell">${esc(r.requestor)}</td>
       <td class="description-cell" title="${esc(r.description)}">${esc(r.description)}</td>
