@@ -14,38 +14,25 @@ function buildConnectionString() {
   );
 }
 
-let conn;
-let connPromise;
+let pool;
 
-function getConnection() {
-  if (conn) return Promise.resolve(conn);
-  if (connPromise) return connPromise;
-
-  connPromise = new Promise((resolve, reject) => {
-    sql.open(buildConnectionString(), (err, connection) => {
-      connPromise = null;
-      if (err) {
-        reject(err);
-      } else {
-        conn = connection;
-        resolve(conn);
-      }
+function getPool() {
+  if (!pool) {
+    pool = new sql.Pool({
+      connectionString: buildConnectionString(),
+      ceiling: 4,
+      heartbeatSecs: 20
     });
-  });
-
-  return connPromise;
+    pool.open();
+  }
+  return pool;
 }
 
-async function query(sqlText, params = []) {
-  const connection = await getConnection();
+function query(sqlText, params = []) {
   return new Promise((resolve, reject) => {
-    connection.query(sqlText, params, (err, rows) => {
-      if (err) {
-        conn = null; // reset so next call re-opens
-        reject(err);
-      } else {
-        resolve(rows || []);
-      }
+    getPool().query(sqlText, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows || []);
     });
   });
 }

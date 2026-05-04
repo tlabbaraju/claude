@@ -1,27 +1,30 @@
 const requestId = new URLSearchParams(window.location.search).get('id');
 
-if (!requestId) window.location.href = '/dashboard.html';
+if (!requestId) {
+  window.location.href = '/dashboard.html';
+} else {
+  (async () => {
+    const user = await checkAuth();
+    if (!user) return;
 
-(async () => {
-  const user = await checkAuth();
-  if (!user) return;
-
-  try {
-    const res = await fetch(`/api/requests/${requestId}`);
-    if (!res.ok) {
-      window.location.href = '/dashboard.html';
-      return;
+    try {
+      const res = await fetch(`/api/requests/${requestId}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showError(data.error || `Failed to load request (HTTP ${res.status})`);
+        return;
+      }
+      const r = await res.json();
+      document.getElementById('project_name').value = r.project_name ?? '';
+      document.getElementById('request_date').value  = toDateInput(r.request_date);
+      document.getElementById('requestor').value     = r.requestor ?? '';
+      document.getElementById('description').value   = r.description ?? '';
+      document.getElementById('it_comments').value   = r.it_comments ?? '';
+    } catch (err) {
+      showError('Network error loading request: ' + err.message);
     }
-    const r = await res.json();
-    document.getElementById('project_name').value = r.project_name ?? '';
-    document.getElementById('request_date').value  = toDateInput(r.request_date);
-    document.getElementById('requestor').value     = r.requestor ?? '';
-    document.getElementById('description').value   = r.description ?? '';
-    document.getElementById('it_comments').value   = r.it_comments ?? '';
-  } catch {
-    window.location.href = '/dashboard.html';
-  }
-})();
+  })();
+}
 
 document.getElementById('edit-request-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -54,6 +57,12 @@ document.getElementById('edit-request-form').addEventListener('submit', async (e
     errEl.style.display = 'block';
   }
 });
+
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
 
 function toDateInput(val) {
   if (!val) return '';
