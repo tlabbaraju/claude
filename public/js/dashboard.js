@@ -9,6 +9,7 @@ async function loadRequests() {
     const res = await fetch('/api/requests');
     if (!res.ok) throw new Error('Failed to load requests');
     const requests = await res.json();
+    console.log('[dashboard] API rows:', requests);
     renderTable(requests);
   } catch (err) {
     showError(err.message);

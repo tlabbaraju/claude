@@ -6,7 +6,7 @@ const { query, queryOne } = require('../db');
 router.get('/', requireAuth, async (req, res) => {
   try {
     const rows = await query(
-      'SELECT project_id, project_name, request_date, requestor, description, it_comments FROM dbo.project_requests ORDER BY request_date DESC'
+      'SELECT project_id, project_name, request_date, requestor, description, it_comments FROM dbo.project_requests ORDER BY project_id DESC'
     );
     res.json(rows);
   } catch (err) {
