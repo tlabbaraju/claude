@@ -16,7 +16,6 @@ router.get('/', requireAuth, async (req, res) => {
 
 router.get('/:id', requireAuth, async (req, res) => {
   const raw = req.params.id;
-  console.log('[GET /:id] raw param:', JSON.stringify(raw));
   if (!raw) return res.status(400).json({ error: 'Invalid id' });
   try {
     const row = await queryOne(

@@ -1,5 +1,4 @@
 const requestId = new URLSearchParams(window.location.search).get('id');
-console.log('[edit] requestId from URL:', requestId);
 
 if (!requestId) {
   window.location.href = '/dashboard.html';
