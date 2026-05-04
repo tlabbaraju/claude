@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User — Project Request System</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav>
+    <div class="nav-brand">
+      <a href="/users.html" class="nav-back">&larr; Users</a>
+      Project Request System
+    </div>
+    <div class="nav-user">
+      <span>Logged in as <strong id="nav-username">…</strong></span>
+      <button class="btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <main>
+    <div class="page-header">
+      <h1 id="page-title">Add User</h1>
+    </div>
+
+    <div class="form-card">
+      <h2>User Details</h2>
+      <div id="error-msg" class="alert alert-error"></div>
+
+      <form id="user-form">
+        <div class="form-group">
+          <label for="username">Username <span style="color:#dc2626">*</span></label>
+          <input type="text" id="username" name="username" required />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password <span style="color:#dc2626" id="pw-required-marker">*</span></label>
+          <input type="password" id="password" name="password" id="password" />
+        </div>
+
+        <div class="form-group">
+          <label for="confirm_password">Confirm Password</label>
+          <input type="password" id="confirm_password" name="confirm_password" />
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn" id="submit-btn">Add User</button>
+          <a href="/users.html" class="btn btn-secondary">Cancel</a>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script src="/js/user-edit.js"></script>
+</body>
+</html>

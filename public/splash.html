@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome — Project Request System</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="splash-body">
+  <div class="splash-logo">&#x1F69A;</div>
+  <h1 class="splash-title">Project Request System</h1>
+  <p class="splash-sub">Powered by Trucklite</p>
+
+  <div class="splash-progress-wrap">
+    <div class="splash-progress-bar" id="splash-bar"></div>
+  </div>
+
+  <a href="/menu.html" class="btn btn-ghost" id="skip-btn">Enter Now &rarr;</a>
+
+  <script>
+    (async () => {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) {
+          window.location.href = '/index.html';
+          return;
+        }
+      } catch {
+        window.location.href = '/index.html';
+        return;
+      }
+      setTimeout(() => {
+        window.location.href = '/menu.html';
+      }, 5000);
+    })();
+  </script>
+</body>
+</html>

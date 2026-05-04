@@ -29,7 +29,7 @@
   <script>
     (async () => {
       const res = await fetch('/api/auth/me');
-      if (res.ok) window.location.href = '/dashboard.html';
+      if (res.ok) window.location.href = '/menu.html';
     })();
 
     document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -52,7 +52,7 @@
           errEl.style.display = 'block';
           return;
         }
-        window.location.href = '/dashboard.html';
+        window.location.href = '/splash.html';
       } catch {
         errEl.textContent = 'Network error. Please try again.';
         errEl.style.display = 'block';

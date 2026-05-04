@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Menu — Project Request System</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <nav>
+    <span class="nav-brand">Project Request System</span>
+    <div class="nav-user">
+      <span>Logged in as <strong id="nav-username">…</strong></span>
+      <button class="btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <main>
+    <div class="page-header">
+      <h1>Home</h1>
+    </div>
+    <p class="welcome-heading" id="welcome-msg">Welcome back!</p>
+
+    <div class="menu-grid">
+      <a href="/dashboard.html" class="menu-card">
+        <span class="menu-card-icon">&#x1F4CB;</span>
+        <div class="menu-card-title">Project Requests</div>
+        <div class="menu-card-desc">View, create and manage project requests</div>
+      </a>
+      <a href="/users.html" class="menu-card">
+        <span class="menu-card-icon">&#x1F465;</span>
+        <div class="menu-card-title">User Management</div>
+        <div class="menu-card-desc">Add and manage system users</div>
+      </a>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    (async () => {
+      const user = await checkAuth();
+      if (!user) return;
+      const welcomeEl = document.getElementById('welcome-msg');
+      if (welcomeEl) welcomeEl.textContent = `Welcome back, ${user.username}!`;
+    })();
+  </script>
+</body>
+</html>

@@ -5,6 +5,7 @@ const path = require('path');
 
 const authRouter = require('./routes/auth');
 const requestsRouter = require('./routes/requests');
+const usersRouter = require('./routes/users');
 
 const app = express();
 
@@ -22,6 +23,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api/auth', authRouter);
 app.use('/api/requests', requestsRouter);
+app.use('/api/users', usersRouter);
 
 app.get('/', (req, res) => res.redirect('/index.html'));
 
