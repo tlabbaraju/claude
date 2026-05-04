@@ -36,9 +36,11 @@ router.post('/', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'project_name, requestor, and description are required' });
   }
   try {
+    const maxRows = await query('SELECT ISNULL(MAX(project_id), 0) AS max_id FROM dbo.project_requests');
+    const nextId = String((maxRows[0]?.max_id ?? 0) + 1);
     await query(
-      'INSERT INTO dbo.project_requests (project_name, request_date, requestor, description) VALUES (?, ?, ?, ?)',
-      [project_name, request_date || new Date(), requestor, description]
+      'INSERT INTO dbo.project_requests (project_id, project_name, request_date, requestor, description) VALUES (?, ?, ?, ?, ?)',
+      [nextId, project_name, request_date || new Date(), requestor, description]
     );
     res.status(201).json({ message: 'Request created' });
   } catch (err) {
