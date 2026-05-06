@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Financial Tracker — Users</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="nav-brand">Financial Tracker</span>
+    <div class="nav-links">
+      <a href="/admin-grid.html" class="nav-link">Financial</a>
+      <a href="/admin-users.html" class="nav-link active">Users</a>
+      <a href="/admin-audit.html" class="nav-link">Audit</a>
+    </div>
+    <div class="nav-user">
+      <strong id="navUser"></strong>
+      <span class="role-badge role-admin">Admin</span>
+      <button class="btn-ghost" onclick="logout()">Sign out</button>
+    </div>
+  </nav>
+
+  <main>
+    <div id="alert" class="alert"></div>
+
+    <div class="page-header">
+      <h1>Users</h1>
+      <button class="btn" onclick="openForm(null)">+ New User</button>
+    </div>
+
+    <!-- Create / Edit form -->
+    <div id="userForm" class="card" style="display:none;margin-bottom:1.25rem;">
+      <div class="card-title" id="formTitle">New User</div>
+      <input type="hidden" id="editId">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem 1.5rem;">
+        <div class="form-group" style="margin-bottom:0">
+          <label>Username</label>
+          <input type="text" id="fUsername" autocomplete="off" placeholder="e.g. jsmith">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Password <span id="pwdNote" style="font-weight:400;color:var(--text-sm);font-size:0.78rem"></span></label>
+          <input type="password" id="fPassword" autocomplete="new-password" placeholder="••••••••">
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Role</label>
+          <select id="fRole">
+            <option value="entity_user">Entity User</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label>Entities <span style="font-weight:400;color:var(--text-sm);font-size:0.78rem">(comma-separated)</span></label>
+          <input type="text" id="fEntities" placeholder="e.g. Acme Corp, Globex">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn" id="submitBtn" onclick="submitForm()">Save User</button>
+        <button class="btn btn-secondary" onclick="closeForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Users table -->
+    <div class="fin-table-wrap">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title">All Users</span>
+        <span class="record-count" id="recordCount">0 users</span>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Role</th>
+            <th>Entities</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div id="emptyState" class="empty-state" style="display:none">No users found.</div>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    let currentUser = null;
+    let users = [];
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function fmtDate(s) {
+      if (!s) return '—';
+      return new Date(s.replace(' ', 'T') + 'Z')
+        .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    async function init() {
+      currentUser = await checkAuth('admin');
+      if (!currentUser) return;
+      document.getElementById('navUser').textContent = currentUser.username;
+      await loadUsers();
+    }
+
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/users');
+        if (!res.ok) throw new Error('Failed to load users');
+        users = await res.json();
+        renderTable();
+      } catch (err) {
+        showAlert(document.getElementById('alert'), err.message);
+      }
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('tableBody');
+      const empty = document.getElementById('emptyState');
+      document.getElementById('recordCount').textContent =
+        `${users.length} ${users.length === 1 ? 'user' : 'users'}`;
+
+      if (users.length === 0) {
+        tbody.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td><strong>${esc(u.username)}</strong></td>
+          <td>
+            <span class="role-badge role-${esc(u.role)}">
+              ${u.role === 'admin' ? 'Admin' : 'Entity User'}
+            </span>
+          </td>
+          <td>
+            ${u.entities.length
+              ? u.entities.map(e => `<span class="entity-badge" style="margin:1px 3px 1px 0;display:inline-block">${esc(e)}</span>`).join('')
+              : '<span style="color:#94a3b8;font-size:0.8rem">None</span>'}
+          </td>
+          <td class="date-cell">${fmtDate(u.created_at)}</td>
+          <td>
+            <div style="display:flex;gap:0.4rem;">
+              <button class="btn btn-sm btn-secondary" onclick="openForm(${u.id})">Edit</button>
+              ${u.id !== currentUser.id
+                ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id}, '${esc(u.username)}')">Delete</button>`
+                : ''}
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openForm(userId) {
+      const isEdit = userId != null;
+      document.getElementById('editId').value = userId ?? '';
+      document.getElementById('fPassword').value = '';
+      document.getElementById('fRole').value = 'entity_user';
+      document.getElementById('fEntities').value = '';
+      document.getElementById('pwdNote').textContent = '';
+
+      if (isEdit) {
+        const u = users.find(x => x.id === userId);
+        if (!u) return;
+        document.getElementById('formTitle').textContent = `Edit — ${u.username}`;
+        document.getElementById('fUsername').value = u.username;
+        document.getElementById('fRole').value = u.role;
+        document.getElementById('fEntities').value = u.entities.join(', ');
+        document.getElementById('pwdNote').textContent = '(leave blank to keep current)';
+      } else {
+        document.getElementById('formTitle').textContent = 'New User';
+        document.getElementById('fUsername').value = '';
+      }
+
+      document.getElementById('userForm').style.display = 'block';
+      document.getElementById('userForm').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      document.getElementById('fUsername').focus();
+    }
+
+    function closeForm() {
+      document.getElementById('userForm').style.display = 'none';
+      document.getElementById('alert').style.display = 'none';
+    }
+
+    async function submitForm() {
+      const alertEl   = document.getElementById('alert');
+      const id        = document.getElementById('editId').value;
+      const username  = document.getElementById('fUsername').value.trim();
+      const password  = document.getElementById('fPassword').value;
+      const role      = document.getElementById('fRole').value;
+      const entities  = document.getElementById('fEntities').value
+                          .split(',').map(e => e.trim()).filter(Boolean);
+      const isNew     = !id;
+
+      if (!username) { showAlert(alertEl, 'Username is required.'); return; }
+      if (isNew && !password) { showAlert(alertEl, 'Password is required for new users.'); return; }
+
+      const body = { username, role, entities };
+      if (password) body.password = password;
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        const res = await fetch(isNew ? '/api/users' : `/api/users/${id}`, {
+          method: isNew ? 'POST' : 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Save failed'); }
+
+        closeForm();
+        await loadUsers();
+        showAlert(document.getElementById('alert'),
+          isNew ? `User "${username}" created.` : `User "${username}" updated.`, 'success');
+      } catch (err) {
+        showAlert(alertEl, err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save User';
+      }
+    }
+
+    async function deleteUser(id, username) {
+      if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+      const alertEl = document.getElementById('alert');
+      try {
+        const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Delete failed'); }
+        await loadUsers();
+        showAlert(alertEl, `User "${username}" deleted.`, 'success');
+      } catch (err) {
+        showAlert(alertEl, err.message);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

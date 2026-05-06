@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Financial Tracker — Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="nav-brand">Financial Tracker</span>
+    <div class="nav-links">
+      <a href="/admin-grid.html" class="nav-link active">Financial</a>
+      <a href="/admin-users.html" class="nav-link">Users</a>
+      <a href="/admin-audit.html" class="nav-link">Audit</a>
+    </div>
+    <div class="nav-user">
+      <strong id="navUser"></strong>
+      <span class="role-badge role-admin">Admin</span>
+      <button class="btn-ghost" onclick="logout()">Sign out</button>
+    </div>
+  </nav>
+
+  <main>
+    <div id="alert" class="alert"></div>
+
+    <div class="page-header">
+      <h1>Financial Data</h1>
+      <div style="display:flex;gap:0.75rem;align-items:flex-end;">
+        <div class="filter-group">
+          <label style="font-size:0.78rem;font-weight:600;color:var(--text-sm)">Year</label>
+          <select id="yearSelect" style="width:100px;"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="current_estimate">Current Estimate</button>
+      <button class="tab-btn" data-tab="past_due_31plus">Past Due 31+</button>
+      <button class="tab-btn" data-tab="total_past_due">Total Past Due</button>
+    </div>
+
+    <div class="fin-table-wrap">
+      <div class="table-toolbar">
+        <span class="table-toolbar-title" id="toolbarTitle">Current Estimate</span>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span class="record-count" id="recordCount">0 entities</span>
+          <input type="text" id="newEntityInput" placeholder="Entity name…"
+            style="width:180px;padding:0.28rem 0.65rem;font-size:0.82rem;border-radius:5px;">
+          <button class="btn btn-sm" onclick="addEntityRow()">+ Add Row</button>
+        </div>
+      </div>
+      <table class="fin-table">
+        <thead>
+          <tr>
+            <th style="text-align:left">Entity</th>
+            <th>Jan</th><th>Feb</th><th>Mar</th><th>Apr</th>
+            <th>May</th><th>Jun</th><th>Jul</th><th>Aug</th>
+            <th>Sep</th><th>Oct</th><th>Nov</th><th>Dec</th>
+            <th style="text-align:center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div id="emptyState" class="empty-state" style="display:none">
+        No data for this year and tab. Use "+ Add Row" to create the first entry.
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/auth.js"></script>
+  <script>
+    const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+    const TAB_LABELS = {
+      current_estimate: 'Current Estimate',
+      past_due_31plus:  'Past Due 31+',
+      total_past_due:   'Total Past Due',
+    };
+
+    let user = null;
+    let allRows = [];
+    let activeTab = 'current_estimate';
+    let year = new Date().getFullYear();
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function init() {
+      user = await checkAuth('admin');
+      if (!user) return;
+      document.getElementById('navUser').textContent = user.username;
+
+      const sel = document.getElementById('yearSelect');
+      const cy = new Date().getFullYear();
+      for (let y = cy + 1; y >= cy - 3; y--) {
+        const opt = document.createElement('option');
+        opt.value = y; opt.textContent = y;
+        if (y === cy) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => { year = Number(sel.value); loadData(); });
+
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          activeTab = btn.dataset.tab;
+          renderTable();
+        });
+      });
+
+      document.getElementById('newEntityInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') addEntityRow();
+      });
+
+      await loadData();
+    }
+
+    async function loadData() {
+      const alertEl = document.getElementById('alert');
+      alertEl.style.display = 'none';
+      try {
+        const res = await fetch(`/api/financial/all/${year}`);
+        if (!res.ok) throw new Error('Failed to load data');
+        allRows = await res.json();
+        renderTable();
+      } catch (err) {
+        showAlert(alertEl, err.message);
+      }
+    }
+
+    function renderTable() {
+      const rows = allRows.filter(r => r.tab_type === activeTab);
+      const tbody = document.getElementById('tableBody');
+      const empty = document.getElementById('emptyState');
+
+      document.getElementById('toolbarTitle').textContent = TAB_LABELS[activeTab];
+      document.getElementById('recordCount').textContent =
+        `${rows.length} ${rows.length === 1 ? 'entity' : 'entities'}`;
+
+      if (rows.length === 0) {
+        tbody.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      tbody.innerHTML = rows.map(row => `
+        <tr data-entity="${esc(row.entity)}" data-tab="${esc(row.tab_type)}">
+          <td class="entity-cell">${esc(row.entity)}</td>
+          ${MONTHS.map(m => `
+            <td><input type="number" class="month-input" data-month="${m}"
+              value="${row[m] ?? 0}" step="any"></td>
+          `).join('')}
+          <td class="actions-cell">
+            <button class="btn btn-sm" onclick="saveRow(this)">Save</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function addEntityRow() {
+      const input = document.getElementById('newEntityInput');
+      const entity = input.value.trim();
+      if (!entity) return;
+
+      const exists = allRows.some(r => r.entity === entity && r.tab_type === activeTab);
+      if (exists) {
+        showAlert(document.getElementById('alert'), `"${entity}" is already listed for this tab.`);
+        return;
+      }
+
+      allRows.push({ entity, year, tab_type: activeTab,
+        ...Object.fromEntries(MONTHS.map(m => [m, 0])) });
+      input.value = '';
+      renderTable();
+
+      // Scroll to new row and focus first input
+      const newRow = document.querySelector(`tr[data-entity="${CSS.escape(entity)}"]`);
+      if (newRow) {
+        newRow.scrollIntoView({ block: 'nearest' });
+        newRow.querySelector('.month-input')?.focus();
+      }
+    }
+
+    async function saveRow(btn) {
+      const tr = btn.closest('tr');
+      const entity = tr.dataset.entity;
+      const tab_type = tr.dataset.tab;
+      const body = {};
+      tr.querySelectorAll('.month-input').forEach(inp => {
+        body[inp.dataset.month] = inp.value === '' ? 0 : Number(inp.value);
+      });
+
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+      const alertEl = document.getElementById('alert');
+
+      try {
+        const res = await fetch(
+          `/api/financial/${encodeURIComponent(entity)}/${year}/${tab_type}`,
+          { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        );
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Save failed'); }
+
+        const idx = allRows.findIndex(r => r.entity === entity && r.tab_type === tab_type);
+        if (idx !== -1) Object.assign(allRows[idx], body);
+        else allRows.push({ entity, year, tab_type, ...body });
+
+        tr.classList.add('saved-flash');
+        setTimeout(() => tr.classList.remove('saved-flash'), 1200);
+        showAlert(alertEl, `Saved — ${entity}`, 'success');
+      } catch (err) {
+        showAlert(alertEl, err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save';
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
