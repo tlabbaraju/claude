@@ -62,21 +62,11 @@ async function connectFabric() {
 }
 
 async function mergeFinancialData({ entity, year, tab_type, months, updated_by }) {
-  const pool = await getPool();
-  const r = pool.request();
-  r.input('entity',     sql.VarChar(100), entity);
-  r.input('year',       sql.Int,          year);
-  r.input('tab_type',   sql.VarChar(30),  tab_type);
-  r.input('updated_by', sql.VarChar(100), updated_by);
-  r.input('updated_at', sql.DateTime2,    new Date());
-  for (const m of MONTHS) {
-    r.input(m, sql.Float, months[m] ?? null);
-  }
   const monthSrcCols = MONTHS.map(m => `@${m} AS ${m}`).join(', ');
   const monthUpdSet  = MONTHS.map(m => `tgt.${m} = src.${m}`).join(', ');
   const monthInsCols = MONTHS.join(', ');
   const monthInsSrc  = MONTHS.map(m => `src.${m}`).join(', ');
-  await r.query(`
+  const mergeSql = `
     MERGE dbo.ft_financial_data AS tgt
     USING (SELECT @entity AS entity, @year AS year, @tab_type AS tab_type,
                   ${monthSrcCols},
@@ -87,27 +77,52 @@ async function mergeFinancialData({ entity, year, tab_type, months, updated_by }
     WHEN NOT MATCHED THEN
       INSERT (entity, year, tab_type, ${monthInsCols}, updated_at, updated_by)
       VALUES (src.entity, src.year, src.tab_type, ${monthInsSrc}, src.updated_at, src.updated_by);
-  `);
+  `;
+  // Fabric snapshot isolation can produce transient update conflicts — retry up to 3 times
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const pool = await getPool();
+      const r = pool.request();
+      r.input('entity',     sql.VarChar(100), entity);
+      r.input('year',       sql.Int,          year);
+      r.input('tab_type',   sql.VarChar(30),  tab_type);
+      r.input('updated_by', sql.VarChar(100), updated_by);
+      r.input('updated_at', sql.DateTime2,    new Date());
+      for (const m of MONTHS) r.input(m, sql.Float, months[m] ?? null);
+      await r.query(mergeSql);
+      return;
+    } catch (err) {
+      if (attempt < 3 && err.message && err.message.includes('update conflict')) {
+        await new Promise(resolve => setTimeout(resolve, 150 * attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 async function writeAuditLog(entries) {
   if (!entries || entries.length === 0) return;
   const pool = await getPool();
-  const table = new sql.Table('dbo.ft_audit_log');
-  table.create = false;
-  table.columns.add('entity',     sql.VarChar(100), { nullable: false });
-  table.columns.add('year',       sql.Int,           { nullable: false });
-  table.columns.add('tab_type',   sql.VarChar(30),  { nullable: false });
-  table.columns.add('month',      sql.VarChar(3),   { nullable: false });
-  table.columns.add('old_value',  sql.Float,         { nullable: true });
-  table.columns.add('new_value',  sql.Float,         { nullable: true });
-  table.columns.add('changed_by', sql.VarChar(100), { nullable: false });
-  table.columns.add('changed_at', sql.DateTime2,    { nullable: false });
-  const now = new Date();
+  const now  = new Date();
+  // Fabric Warehouse does not support the TDS bulk-load protocol — use individual INSERTs
   for (const e of entries) {
-    table.rows.add(e.entity, e.year, e.tab_type, e.month, e.old_value, e.new_value, e.changed_by, now);
+    const r = pool.request();
+    r.input('entity',     sql.VarChar(100), e.entity);
+    r.input('year',       sql.Int,          e.year);
+    r.input('tab_type',   sql.VarChar(30),  e.tab_type);
+    r.input('month',      sql.VarChar(3),   e.month);
+    r.input('old_value',  sql.Float,        e.old_value);
+    r.input('new_value',  sql.Float,        e.new_value);
+    r.input('changed_by', sql.VarChar(100), e.changed_by);
+    r.input('changed_at', sql.DateTime2,    now);
+    await r.query(`
+      INSERT INTO dbo.ft_audit_log
+        (entity, year, tab_type, month, old_value, new_value, changed_by, changed_at)
+      VALUES
+        (@entity, @year, @tab_type, @month, @old_value, @new_value, @changed_by, @changed_at)
+    `);
   }
-  await pool.request().bulk(table);
 }
 
 module.exports = { connectFabric, mergeFinancialData, writeAuditLog, getPool };
