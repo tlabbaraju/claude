@@ -56,6 +56,13 @@ router.put('/:entity/:year/:month/:day/:tab_type', requireAuth, async (req, res)
   }
   if (!TAB_TYPES.includes(tab_type)) return res.status(400).json({ error: 'Invalid tab_type' });
 
+  // Non-admins cannot edit past dates
+  if (req.session.user.role !== 'admin') {
+    const selected = new Date(Number(year), Number(month) - 1, Number(day));
+    const today    = new Date(); today.setHours(0, 0, 0, 0);
+    if (selected < today) return res.status(403).json({ error: 'Past dates are read-only' });
+  }
+
   try {
     const updates = req.body;
     const current = await queryCurrentRow({
