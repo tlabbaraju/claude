@@ -1,7 +1,7 @@
-const express   = require('express');
-const router    = express.Router();
-const bcrypt    = require('bcrypt');
-const { getDb } = require('../db/index');
+const express  = require('express');
+const router   = express.Router();
+const bcrypt   = require('bcrypt');
+const { getUserByUsername } = require('../db/fabric');
 
 router.get('/me', (req, res) => {
   if (req.session && req.session.user) return res.json(req.session.user);
@@ -12,18 +12,19 @@ router.post('/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
 
-  const db   = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-  if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const user = await getUserByUsername(username);
+    if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-  const match = await bcrypt.compare(password, user.password_hash);
-  if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
 
-  const entityRows = db.prepare('SELECT entity FROM user_entities WHERE user_id = ? ORDER BY entity').all(user.id);
-  const entities = entityRows.map(r => r.entity);
-
-  req.session.user = { id: user.id, username: user.username, role: user.role, entities };
-  res.json(req.session.user);
+    req.session.user = { id: user.id, username: user.username, role: user.role, entities: user.entities };
+    res.json(req.session.user);
+  } catch (err) {
+    console.error('[Fabric Error] login:', err.message);
+    res.status(500).json({ error: 'Login failed' });
+  }
 });
 
 router.post('/logout', (req, res) => {

@@ -100,9 +100,7 @@
     }
 
     function isPageEditable() {
-      const sel = new Date(year, month - 1, day);
-      const tod = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      return sel >= tod;
+      return true; // admins can edit any date
     }
 
     function esc(s) {
@@ -229,7 +227,13 @@
       if (!isPageEditable()) return;
       const input = document.getElementById('newEntityInput');
       const entity = input.value.trim();
-      if (!entity) return;
+      if (!entity) {
+        input.focus();
+        input.placeholder = 'Type entity name first…';
+        input.style.borderColor = '#f87171';
+        setTimeout(() => { input.placeholder = 'Entity name…'; input.style.borderColor = ''; }, 2000);
+        return;
+      }
 
       const exists = allRows.some(r => r.entity === entity && r.tab_type === activeTab);
       if (exists) {

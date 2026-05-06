@@ -2,18 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const path    = require('path');
-const { initDb }     = require('./db/index');
-const { ensureSchema } = require('./db/schema');
 const { connectFabric } = require('./db/fabric');
 
 async function start() {
-  await initDb();
-  ensureSchema();
-  try {
-    await connectFabric();
-  } catch (err) {
-    console.warn('⚠ Fabric Warehouse unavailable — writes will be local only');
-  }
+  await connectFabric();
 
   const authRouter      = require('./routes/auth');
   const financialRouter = require('./routes/financial');

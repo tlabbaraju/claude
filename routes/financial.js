@@ -1,9 +1,8 @@
-const express            = require('express');
-const router             = express.Router();
-const requireAuth        = require('../middleware/requireAuth');
-const requireAdmin       = require('../middleware/requireAdmin');
-const { getDb }          = require('../db/index');
-const { mergeFinancialData, writeAuditLog } = require('../db/fabric');
+const express       = require('express');
+const router        = express.Router();
+const requireAuth   = require('../middleware/requireAuth');
+const requireAdmin  = require('../middleware/requireAdmin');
+const { queryAllEntities, queryFinancialData, queryCurrentRow, mergeFinancialData, writeAuditLog } = require('../db/fabric');
 
 const MONTHS    = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
 const TAB_TYPES = ['current_estimate','past_due_31plus','total_past_due'];
@@ -12,84 +11,90 @@ function canAccessEntity(user, entity) {
   return user.role === 'admin' || (user.entities && user.entities.includes(entity));
 }
 
-// Admin: all entities for a given year/month/day snapshot
-router.get('/all/:year/:month/:day', requireAdmin, (req, res) => {
-  const { year, month, day } = req.params;
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT * FROM financial_data WHERE year = ? AND month = ? AND day = ? ORDER BY entity, tab_type'
-  ).all(Number(year), Number(month), Number(day));
-  res.json(rows);
+const ZERO_MONTHS = Object.fromEntries(['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].map(m => [m, 0]));
+
+// Admin: all entities for a given year/month/day snapshot — always returns all known entities
+router.get('/all/:year/:month/:day', requireAdmin, async (req, res) => {
+  try {
+    const { year, month, day } = req.params;
+    const [rows, allEntities] = await Promise.all([
+      queryFinancialData({ year: Number(year), month: Number(month), day: Number(day) }),
+      queryAllEntities(),
+    ]);
+    // Fill in zero-rows for any entity+tab_type not yet saved for this date
+    const key = r => `${r.entity}||${r.tab_type}`;
+    const saved = new Set(rows.map(key));
+    const placeholders = allEntities
+      .filter(e => !saved.has(key(e)))
+      .map(e => ({ ...ZERO_MONTHS, entity: e.entity, year: Number(year), month: Number(month), day: Number(day), tab_type: e.tab_type }));
+    res.json([...rows, ...placeholders]);
+  } catch (err) {
+    console.error('[Fabric Error] GET /all:', err.message);
+    res.status(500).json({ error: 'Failed to load data' });
+  }
 });
 
-// Entity user: their entities for a given year/month/day snapshot
-router.get('/mine/:year/:month/:day', requireAuth, (req, res) => {
+// Entity user: their entities for a given year/month/day snapshot — always returns all assigned entities
+router.get('/mine/:year/:month/:day', requireAuth, async (req, res) => {
   const { entities, role } = req.session.user;
   if (role === 'admin') return res.status(400).json({ error: 'Use /all/:year/:month/:day for admin' });
   if (!entities || entities.length === 0) return res.json([]);
-  const { year, month, day } = req.params;
-  const db = getDb();
-  const placeholders = entities.map(() => '?').join(',');
-  const rows = db.prepare(
-    `SELECT * FROM financial_data WHERE year = ? AND month = ? AND day = ? AND entity IN (${placeholders}) ORDER BY entity, tab_type`
-  ).all(Number(year), Number(month), Number(day), ...entities);
-  res.json(rows);
+  try {
+    const { year, month, day } = req.params;
+    const rows = await queryFinancialData({ year: Number(year), month: Number(month), day: Number(day), entities });
+    res.json(rows);
+  } catch (err) {
+    console.error('[Fabric Error] GET /mine:', err.message);
+    res.status(500).json({ error: 'Failed to load data' });
+  }
 });
 
-router.put('/:entity/:year/:month/:day/:tab_type', requireAuth, (req, res) => {
+router.put('/:entity/:year/:month/:day/:tab_type', requireAuth, async (req, res) => {
   const { entity, year, month, day, tab_type } = req.params;
   if (!canAccessEntity(req.session.user, entity)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   if (!TAB_TYPES.includes(tab_type)) return res.status(400).json({ error: 'Invalid tab_type' });
 
-  const db      = getDb();
-  const updates = req.body;
-  const current = db.prepare(
-    'SELECT * FROM financial_data WHERE entity = ? AND year = ? AND month = ? AND day = ? AND tab_type = ?'
-  ).get(entity, Number(year), Number(month), Number(day), tab_type);
+  try {
+    const updates = req.body;
+    const current = await queryCurrentRow({
+      entity, year: Number(year), month: Number(month), day: Number(day), tab_type
+    });
 
-  const monthValues  = Object.fromEntries(
-    MONTHS.map(m => [m, updates[m] !== undefined ? Number(updates[m]) : (current?.[m] ?? 0)])
-  );
-  const monthSetCols = MONTHS.map(m => `${m} = @${m}`).join(', ');
+    const monthValues = Object.fromEntries(
+      MONTHS.map(m => [m, updates[m] !== undefined ? Number(updates[m]) : (current?.[m] ?? 0)])
+    );
 
-  db.prepare(`
-    INSERT INTO financial_data (entity, year, month, day, tab_type, jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec, updated_at, updated_by)
-    VALUES (@entity, @year, @month, @day, @tab_type, @jan, @feb, @mar, @apr, @may, @jun, @jul, @aug, @sep, @oct, @nov, @dec, datetime('now'), @updated_by)
-    ON CONFLICT(entity, year, month, day, tab_type) DO UPDATE SET
-      ${monthSetCols}, updated_at = datetime('now'), updated_by = @updated_by
-  `).run({ entity, year: Number(year), month: Number(month), day: Number(day), tab_type, ...monthValues, updated_by: req.session.user.username });
-
-  const insertAudit   = db.prepare(
-    'INSERT INTO audit_log (entity, year, tab_type, month, old_value, new_value, changed_by) VALUES (?,?,?,?,?,?,?)'
-  );
-  const fabricEntries = [];
-  db.transaction(() => {
+    // Build audit entries from changed values
+    const fabricEntries = [];
     for (const m of MONTHS) {
       const oldVal = current?.[m] ?? null;
       const newVal = monthValues[m];
       if (oldVal !== newVal) {
-        insertAudit.run(entity, Number(year), tab_type, m, oldVal, newVal, req.session.user.username);
-        fabricEntries.push({ entity, year: Number(year), tab_type, month: m, old_value: oldVal, new_value: newVal, changed_by: req.session.user.username });
+        fabricEntries.push({
+          entity, year: Number(year), tab_type,
+          month: m, old_value: oldVal, new_value: newVal,
+          changed_by: req.session.user.username,
+        });
       }
     }
-  })();
 
-  // Local save complete — fire Fabric writes without blocking the response
-  Promise.allSettled([
-    mergeFinancialData({ entity, year: Number(year), month: Number(month), day: Number(day), tab_type, months: monthValues, updated_by: req.session.user.username }),
-    writeAuditLog(fabricEntries),
-  ]).then(results => {
-    const labels = ['mergeFinancialData', 'writeAuditLog'];
-    results.forEach((r, i) => {
-      if (r.status === 'rejected') {
-        console.error(`[Fabric Error] ${labels[i]}:`, r.reason?.message ?? r.reason);
-      }
+    await mergeFinancialData({
+      entity, year: Number(year), month: Number(month), day: Number(day),
+      tab_type, months: monthValues, updated_by: req.session.user.username,
     });
-  });
 
-  res.json({ message: 'Saved' });
+    // Audit log write is best-effort — don't fail the save if it errors
+    writeAuditLog(fabricEntries).catch(err =>
+      console.error('[Fabric Error] writeAuditLog:', err.message)
+    );
+
+    res.json({ message: 'Saved' });
+  } catch (err) {
+    console.error('[Fabric Error] PUT:', err.message);
+    res.status(500).json({ error: err.message || 'Save failed' });
+  }
 });
 
 module.exports = router;
