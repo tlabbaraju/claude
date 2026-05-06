@@ -32,11 +32,26 @@ async function getPool() {
 // Fabric Data Warehouse: no PRIMARY KEY, IDENTITY, UNIQUE, or DEFAULT constraints
 async function connectFabric() {
   const pool = await getPool();
+
+  // Migrate ft_financial_data: if month column missing, drop and recreate with daily-snapshot schema
+  const colCheck = await pool.request().query(`
+    SELECT COUNT(*) AS cnt FROM sys.columns
+    WHERE object_id = OBJECT_ID('dbo.ft_financial_data') AND name = 'month'
+  `);
+  if (colCheck.recordset[0].cnt === 0) {
+    await pool.request().query(`
+      IF OBJECT_ID('dbo.ft_financial_data','U') IS NOT NULL
+        DROP TABLE dbo.ft_financial_data
+    `);
+  }
+
   await pool.request().query(`
     IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'ft_financial_data')
     CREATE TABLE dbo.ft_financial_data (
       entity     VARCHAR(100),
       year       INT,
+      month      INT,
+      day        INT,
       tab_type   VARCHAR(30),
       jan  FLOAT, feb  FLOAT, mar  FLOAT, apr  FLOAT,
       may  FLOAT, jun  FLOAT, jul  FLOAT, aug  FLOAT,
@@ -61,22 +76,27 @@ async function connectFabric() {
   console.log('✓ Fabric Warehouse connected: ProjectRequestDB');
 }
 
-async function mergeFinancialData({ entity, year, tab_type, months, updated_by }) {
+async function mergeFinancialData({ entity, year, month, day, tab_type, months, updated_by }) {
   const monthSrcCols = MONTHS.map(m => `@${m} AS ${m}`).join(', ');
   const monthUpdSet  = MONTHS.map(m => `tgt.${m} = src.${m}`).join(', ');
   const monthInsCols = MONTHS.join(', ');
   const monthInsSrc  = MONTHS.map(m => `src.${m}`).join(', ');
   const mergeSql = `
     MERGE dbo.ft_financial_data AS tgt
-    USING (SELECT @entity AS entity, @year AS year, @tab_type AS tab_type,
-                  ${monthSrcCols},
+    USING (SELECT @entity AS entity, @year AS year, @month AS month, @day AS day,
+                  @tab_type AS tab_type, ${monthSrcCols},
                   @updated_at AS updated_at, @updated_by AS updated_by) AS src
-      ON tgt.entity = src.entity AND tgt.year = src.year AND tgt.tab_type = src.tab_type
+      ON  tgt.entity   = src.entity
+      AND tgt.year     = src.year
+      AND tgt.month    = src.month
+      AND tgt.day      = src.day
+      AND tgt.tab_type = src.tab_type
     WHEN MATCHED THEN
       UPDATE SET ${monthUpdSet}, tgt.updated_at = src.updated_at, tgt.updated_by = src.updated_by
     WHEN NOT MATCHED THEN
-      INSERT (entity, year, tab_type, ${monthInsCols}, updated_at, updated_by)
-      VALUES (src.entity, src.year, src.tab_type, ${monthInsSrc}, src.updated_at, src.updated_by);
+      INSERT (entity, year, month, day, tab_type, ${monthInsCols}, updated_at, updated_by)
+      VALUES (src.entity, src.year, src.month, src.day, src.tab_type,
+              ${monthInsSrc}, src.updated_at, src.updated_by);
   `;
   // Fabric snapshot isolation can produce transient update conflicts — retry up to 3 times
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -85,6 +105,8 @@ async function mergeFinancialData({ entity, year, tab_type, months, updated_by }
       const r = pool.request();
       r.input('entity',     sql.VarChar(100), entity);
       r.input('year',       sql.Int,          year);
+      r.input('month',      sql.Int,          month);
+      r.input('day',        sql.Int,          day);
       r.input('tab_type',   sql.VarChar(30),  tab_type);
       r.input('updated_by', sql.VarChar(100), updated_by);
       r.input('updated_at', sql.DateTime2,    new Date());

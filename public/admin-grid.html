@@ -32,8 +32,12 @@
           <select id="yearSelect" style="width:100px;"></select>
         </div>
         <div class="filter-group">
-          <label style="font-size:0.78rem;font-weight:600;color:var(--text-sm)">Editable from</label>
-          <select id="monthSelect" style="width:125px;"></select>
+          <label style="font-size:0.78rem;font-weight:600;color:var(--text-sm)">Month</label>
+          <select id="monthSelect" style="width:120px;"></select>
+        </div>
+        <div class="filter-group">
+          <label style="font-size:0.78rem;font-weight:600;color:var(--text-sm)">Day</label>
+          <select id="daySelect" style="width:80px;"></select>
         </div>
       </div>
     </div>
@@ -51,7 +55,7 @@
           <span class="record-count" id="recordCount">0 entities</span>
           <input type="text" id="newEntityInput" placeholder="Entity name…"
             style="width:180px;padding:0.28rem 0.65rem;font-size:0.82rem;border-radius:5px;">
-          <button class="btn btn-sm" onclick="addEntityRow()">+ Add Row</button>
+          <button class="btn btn-sm" id="addRowBtn" onclick="addEntityRow()">+ Add Row</button>
         </div>
       </div>
       <table class="fin-table">
@@ -67,7 +71,7 @@
         <tbody id="tableBody"></tbody>
       </table>
       <div id="emptyState" class="empty-state" style="display:none">
-        No data for this year and tab. Use "+ Add Row" to create the first entry.
+        No data for this date. Use "+ Add Row" to create the first entry.
       </div>
     </div>
   </main>
@@ -75,28 +79,49 @@
   <script src="/js/auth.js"></script>
   <script>
     const MONTHS = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const TAB_LABELS = {
       current_estimate: 'Current Estimate',
       past_due_31plus:  'Past Due 31+',
       total_past_due:   'Total Past Due',
     };
 
-    const cutoffYear = new Date().getFullYear(); // lock boundary is always the current calendar year
     let user = null;
     let allRows = [];
     let activeTab = 'current_estimate';
-    let year = new Date().getFullYear();
-    let cutoffMonth = new Date().getMonth(); // 0-based; months before this index are read-only in cutoffYear
 
-    function isReadOnly(monthKey, rowYear) {
-      if (rowYear < cutoffYear) return true;
-      if (rowYear > cutoffYear) return false;
-      return MONTHS.indexOf(monthKey) < cutoffMonth;
+    const today = new Date();
+    let year  = today.getFullYear();
+    let month = today.getMonth() + 1;  // 1-based
+    let day   = today.getDate();
+
+    function daysInMonth(y, m) {
+      return new Date(y, m, 0).getDate();
+    }
+
+    function isPageEditable() {
+      const sel = new Date(year, month - 1, day);
+      const tod = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      return sel >= tod;
     }
 
     function esc(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function rebuildDayDropdown() {
+      const dayEl = document.getElementById('daySelect');
+      const max = daysInMonth(year, month);
+      const cur = Math.min(day, max);
+      dayEl.innerHTML = '';
+      for (let d = 1; d <= max; d++) {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        if (d === cur) opt.selected = true;
+        dayEl.appendChild(opt);
+      }
+      day = cur;
     }
 
     async function init() {
@@ -104,24 +129,39 @@
       if (!user) return;
       document.getElementById('navUser').textContent = user.username;
 
-      const sel = document.getElementById('yearSelect');
-      const cy = new Date().getFullYear();
+      const yearEl = document.getElementById('yearSelect');
+      const cy = today.getFullYear();
       for (let y = cy + 1; y >= cy - 3; y--) {
         const opt = document.createElement('option');
         opt.value = y; opt.textContent = y;
         if (y === cy) opt.selected = true;
-        sel.appendChild(opt);
+        yearEl.appendChild(opt);
       }
-      sel.addEventListener('change', () => { year = Number(sel.value); loadData(); });
+      yearEl.addEventListener('change', () => {
+        year = Number(yearEl.value);
+        rebuildDayDropdown();
+        loadData();
+      });
 
-      const msel = document.getElementById('monthSelect');
+      const monthEl = document.getElementById('monthSelect');
       MONTH_NAMES.forEach((name, i) => {
         const opt = document.createElement('option');
-        opt.value = i; opt.textContent = name + ' ' + cutoffYear;
-        if (i === cutoffMonth) opt.selected = true;
-        msel.appendChild(opt);
+        opt.value = i + 1;
+        opt.textContent = name;
+        if (i + 1 === month) opt.selected = true;
+        monthEl.appendChild(opt);
       });
-      msel.addEventListener('change', () => { cutoffMonth = Number(msel.value); renderTable(); });
+      monthEl.addEventListener('change', () => {
+        month = Number(monthEl.value);
+        rebuildDayDropdown();
+        loadData();
+      });
+
+      rebuildDayDropdown();
+      document.getElementById('daySelect').addEventListener('change', e => {
+        day = Number(e.target.value);
+        loadData();
+      });
 
       document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -143,7 +183,7 @@
       const alertEl = document.getElementById('alert');
       alertEl.style.display = 'none';
       try {
-        const res = await fetch(`/api/financial/all/${year}`);
+        const res = await fetch(`/api/financial/all/${year}/${month}/${day}`);
         if (!res.ok) throw new Error('Failed to load data');
         allRows = await res.json();
         renderTable();
@@ -153,6 +193,7 @@
     }
 
     function renderTable() {
+      const editable = isPageEditable();
       const rows = allRows.filter(r => r.tab_type === activeTab);
       const tbody = document.getElementById('tableBody');
       const empty = document.getElementById('emptyState');
@@ -161,6 +202,9 @@
       document.getElementById('recordCount').textContent =
         `${rows.length} ${rows.length === 1 ? 'entity' : 'entities'}`;
 
+      const addRowBtn = document.getElementById('addRowBtn');
+      if (addRowBtn) addRowBtn.disabled = !editable;
+
       if (rows.length === 0) {
         tbody.innerHTML = '';
         empty.style.display = 'block';
@@ -168,29 +212,21 @@
       }
       empty.style.display = 'none';
 
-      const addRowBtn = document.querySelector('button[onclick="addEntityRow()"]');
-      if (addRowBtn) addRowBtn.disabled = year < cutoffYear;
-
-      tbody.innerHTML = rows.map(row => {
-        const fullyLocked = row.year < cutoffYear;
-        return `
-          <tr data-entity="${esc(row.entity)}" data-tab="${esc(row.tab_type)}">
-            <td class="entity-cell">${esc(row.entity)}</td>
-            ${MONTHS.map(m => {
-              const ro = isReadOnly(m, row.year);
-              return `<td><input type="number" class="month-input" data-month="${m}"
-                value="${row[m] ?? 0}" step="any"${ro ? ' disabled' : ''}></td>`;
-            }).join('')}
-            <td class="actions-cell">
-              ${fullyLocked
-                ? '<span style="font-size:0.73rem;color:#94a3b8;white-space:nowrap">Read-only</span>'
-                : '<button class="btn btn-sm" onclick="saveRow(this)">Save</button>'}
-            </td>
-          </tr>`;
-      }).join('');
+      tbody.innerHTML = rows.map(row => `
+        <tr data-entity="${esc(row.entity)}" data-tab="${esc(row.tab_type)}">
+          <td class="entity-cell">${esc(row.entity)}</td>
+          ${MONTHS.map(m => `<td><input type="number" class="month-input" data-month="${m}"
+            value="${row[m] ?? 0}" step="any"${editable ? '' : ' disabled'}></td>`).join('')}
+          <td class="actions-cell">
+            ${editable
+              ? '<button class="btn btn-sm" onclick="saveRow(this)">Save</button>'
+              : '<span style="font-size:0.73rem;color:#94a3b8;white-space:nowrap">Read-only</span>'}
+          </td>
+        </tr>`).join('');
     }
 
     function addEntityRow() {
+      if (!isPageEditable()) return;
       const input = document.getElementById('newEntityInput');
       const entity = input.value.trim();
       if (!entity) return;
@@ -201,12 +237,11 @@
         return;
       }
 
-      allRows.push({ entity, year, tab_type: activeTab,
+      allRows.push({ entity, year, month, day, tab_type: activeTab,
         ...Object.fromEntries(MONTHS.map(m => [m, 0])) });
       input.value = '';
       renderTable();
 
-      // Scroll to new row and focus first input
       const newRow = document.querySelector(`tr[data-entity="${CSS.escape(entity)}"]`);
       if (newRow) {
         newRow.scrollIntoView({ block: 'nearest' });
@@ -219,11 +254,10 @@
       const entity = tr.dataset.entity;
       const tab_type = tr.dataset.tab;
       const body = {};
-      // Only send editable (non-disabled) months so locked months are never overwritten
       tr.querySelectorAll('.month-input:not([disabled])').forEach(inp => {
         body[inp.dataset.month] = inp.value === '' ? 0 : Number(inp.value);
       });
-      if (Object.keys(body).length === 0) return; // nothing editable to save
+      if (Object.keys(body).length === 0) return;
 
       btn.disabled = true;
       btn.textContent = 'Saving…';
@@ -231,14 +265,14 @@
 
       try {
         const res = await fetch(
-          `/api/financial/${encodeURIComponent(entity)}/${year}/${tab_type}`,
+          `/api/financial/${encodeURIComponent(entity)}/${year}/${month}/${day}/${tab_type}`,
           { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
         );
         if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Save failed'); }
 
         const idx = allRows.findIndex(r => r.entity === entity && r.tab_type === tab_type);
         if (idx !== -1) Object.assign(allRows[idx], body);
-        else allRows.push({ entity, year, tab_type, ...body });
+        else allRows.push({ entity, year, month, day, tab_type, ...body });
 
         tr.classList.add('saved-flash');
         setTimeout(() => tr.classList.remove('saved-flash'), 1200);
